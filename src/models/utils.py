@@ -138,9 +138,6 @@ def count_parameters(model):
     return total_params
 
 def compute_surprisal(text):
-    
-    # Whitespace-tokenize the text
-    wh_tokenized_str = text.split(" ")
 
     # Tokenize input
     inputs = tokenizer(text, return_tensors="pt", add_special_tokens = True)
@@ -176,7 +173,7 @@ def compute_surprisal(text):
     
     tokens = tokenizer.convert_ids_to_tokens(shift_labels.squeeze().tolist()) 
     token_surprisals = list(zip(tokens, surprisals.squeeze().tolist()))
-    
+
     return token_surprisals
 ## example use: 
 # text = "The quick brown fox jumps over the lazy dog"
@@ -198,65 +195,29 @@ def clean_up_surprisals(token_surprisals):
             words.append(("".join(current_word), current_surprisals)) #save the last word
             current_word = [token] #reset for the new word
             current_surprisals = [surprisal]
-        elif "." in token and current_word:
+        elif token.startswith("..."): #new word starts
             words.append(("".join(current_word), current_surprisals))
-        elif "!" in token and current_word:
+            current_word = [token]
+            current_surprisals = [surprisal]
+        elif not token.startswith("...") and ("..." in current_word or "...." in current_word) and (not any(elem in token and current_word for elem in [".","!","?"])) : #add leading whitespace 
+            if not " " in current_word:
+                current_word.insert(0, " ") #prepend leading whitespace
+                current_surprisals.insert(0,0) #prepend 0 correspondign to new whitespace
+            current_word.append(token)
+            current_surprisals.append(surprisal)
+        elif any(elem in token and current_word for elem in [".","!","?"]):
             words.append(("".join(current_word), current_surprisals))
-        elif "?" in token and current_word:
-            words.append("".join(current_word), current_surprisals)
         else:
             current_word.append(token)
             current_surprisals.append(surprisal)
 
     # Remove the whitespace token surprisals
     # (this will also remove any words that don't have whitespaces in front of them, which 
-    # takes care of sequences that begin with tokenizer-truncated contractions
-    # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisals for " `m ")
-    rmwh_surprisals = [(i.split(" ")[2],j[1:]) for i,j in words if i.startswith(" ")]
+    # takes care of anything that had been attached to the initial word in sentence
+    # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
+    # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
+    rmwh_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
 
     # Combine the surprisals for words with more than one subword token
     return [(i,np.sum(j)) for i,j in rmwh_surprisals]
 
-
-def compute_surprisal_batch(texts):
-    # Tokenize with padding
-    encodings = tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
-    input_ids = encodings["input_ids"].to(device)
-    attention_mask = encodings["attention_mask"].to(device)
-
-    with torch.no_grad():
-        outputs = model(input_ids)
-        logits = outputs.logits
-
-    # Shift for next-token prediction
-    shift_logits = logits[:, :-1, :]
-    shift_labels = input_ids[:, 1:]
-    shift_mask = attention_mask[:, 1:]
-
-    log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
-    next_token_log_probs = log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
-
-    # Convert to surprisal: -log2(p)
-    surprisals = -next_token_log_probs / math.log(2)
-
-    results = []
-    for i, text in enumerate(texts):
-        tokens = tokenizer.convert_ids_to_tokens(input_ids[i][1:shift_labels.shape[1] + 1])
-        text_surprisals = surprisals[i][:len(tokens)]
-        mask = shift_mask[i][:len(tokens)]
-        # Filter out padding
-        filtered = [(t, s.item()) for t, s, m in zip(tokens, text_surprisals, mask) if m.item() == 1]
-        results.append(filtered)
-
-    return results
-## example use: 
-# texts = ["The quick brown fox",
-#          "GPT models can generate text.",
-#          "Surprisal measures how unexpected a token is."]
-
-# batched_output = compute_surprisal_batch(texts)
-
-# for i, sentence in enumerate(texts):
-#     print(f"\nInput: {sentence}")
-#     for token, surprisal in batched_output[i]:
-#         print(f"  Token: {token:<15} Surprisal: {surprisal:.4f}")

@@ -86,6 +86,7 @@ def main(df, mpath, revisions):
             results = []
 
             ## Set up code to grab surprisals below
+            # would be more efficient if set up in batches but alas
             for ix,row in tqdm(df.iterrows()):
 				
                 sentence = row["sentences"]
