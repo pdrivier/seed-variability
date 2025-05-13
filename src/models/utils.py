@@ -196,9 +196,8 @@ def clean_up_surprisals(token_surprisals):
             current_word = [token] #reset for the new word
             current_surprisals = [surprisal]
         elif token.startswith("..."): #new word starts
-            words.append(("".join(current_word), current_surprisals))
-            current_word = [token]
-            current_surprisals = [surprisal]
+            current_word.append(token)
+            current_surprisals.append(surprisal)
         elif not token.startswith("...") and ("..." in current_word or "...." in current_word) and (not any(elem in token and current_word for elem in [".","!","?"])) : #add leading whitespace 
             if not " " in current_word:
                 current_word.insert(0, " ") #prepend leading whitespace
