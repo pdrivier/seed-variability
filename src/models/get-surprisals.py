@@ -26,10 +26,10 @@ MODELS = [
           ]
 
 ## Define path to sentences
-sentence_path = "../../data/materials/"
+sentence_path = "../../data/raw/"
 DATASETS = [
     {"name": "geco-EnglishMaterials.xlsx", "sheet_name": "SENTENCE", "sentence_colname": "SENTENCE"},
-    {"name": "other-dataset.csv", "sheet_name": None, "sentence_colname": "SENTENCE"}
+    {"name": "natstories-parsed-natural-stories.xlsx", "sheet_name": "Boar", "sentence_colname": "SENTENCE"}
 ]
 
 
@@ -55,9 +55,9 @@ def main(df, mpath, revisions):
             if not os.path.exists(savepath): 
                 os.mkdir(savepath)
             if "/" in mpath:
-                filename = "surprisals-model-" + mpath.split("/")[1] + "-" + checkpoint +  "-" + seed_name +".csv"
+                filename = "surprisals-model-" + mpath.split("/")[1] + "-" + seed_name + "-" + checkpoint + ".csv"
             else:
-                filename = "surprisals-model-" + mpath +  "-" + checkpoint + "-" + seed_name +".csv"
+                filename = "surprisals-model-" + mpath + "-" + seed_name + "-" + checkpoint + ".csv"
 
             print("Checking if we've already run this analysis...")
             if os.path.exists(os.path.join(savepath,filename)):
@@ -86,8 +86,9 @@ def main(df, mpath, revisions):
             results = []
 
             ## Set up code to grab surprisals below
-            for sentence in sentences:
-				# sentence = "The quick brown fox jumps over the lazy dog"
+            for ix,row in tqdm(df.iterrows()):
+				
+                sentence = row["sentences"]
 				surprisal_output = compute_surprisal(sentence)
 
 				for token, surprisal in surprisal_output:
@@ -116,14 +117,19 @@ def main(df, mpath, revisions):
 
 
 
-
 if __name__ == "__main__":
 
     ## Read stimuli
-    df = utils.organize_reading_materials(DATASETS)
+    df = utils.organize_reading_materials(sentence_path,DATASETS)
+    filename = "all-sentences.csv"
+    savedfpath = sentence_path + "organized_reading_materials/"
+    if not os.path.exists(savedfpath):
+        os.mkdir(savedfpath)
+    df.to_csv(os.path.join(savedfpath,filename))
 
-    ### Get revisions
-    revisions = utils.generate_revisions_test()
+
+    ### Get model checkpoints/revisions
+    revisions = utils.generate_revisions()
 
     ## Run main
     main(df, MODELS[0], revisions)

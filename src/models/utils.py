@@ -56,11 +56,14 @@ def organize_reading_materials(sentence_path, DATASETS):
     return df
 
 def generate_revisions():
-    ## TODO: Ensure this is correct
+    """Manually generate the list of checkpoints available for Pythia modeling suite"""
+    
     # Fixed initial steps
     revisions = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000]
+    
     # Add every 1,000 steps afterward
     revisions.extend(range(2000, 144000, 1000))  # Adjust range as needed
+    
     # Format each step as "stepX"
     return [f"step{step}" for step in revisions]
 
@@ -74,7 +77,6 @@ def find_sublist_index(mylist, sublist):
     return None
 
 @functools.lru_cache(maxsize=None)  # This will cache results, handy later...
-
 
 
 def run_model(model, tokenizer, sentence, device):
@@ -136,15 +138,27 @@ def count_parameters(model):
     return total_params
 
 def compute_surprisal(text):
+    
+    # Whitespace-tokenize the text
+    wh_tokenized_str = text.split(" ")
+
     # Tokenize input
-    inputs = tokenizer(text, return_tensors="pt")
+    inputs = tokenizer(text, return_tensors="pt", add_special_tokens = True)
     input_ids = inputs["input_ids"].to(device)
 
     with torch.no_grad():
         outputs = model(input_ids)
         logits = outputs.logits
 
-    # Shift logits and labels to align
+    # Shift logits and labels to align:
+    # each row t of logits represents a prediction for label at position t+1
+    # so: get rid of last row of logits (which has no corresponding actual label in labels sequence)
+    # and: get ride of first item of labels, since there is no corresponding logit to predict it
+    # see diagram below: x's are for eliminated elements in each variable
+    # input labels: _x_ | __ | __ | __ 
+    #                    /    /    /
+    # outputlogits:  __ / __ / __ / _x_
+
     shift_logits = logits[:, :-1, :]
     shift_labels = input_ids[:, 1:]
 
@@ -152,19 +166,57 @@ def compute_surprisal(text):
     log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
 
     # Gather log probs of the actual next tokens
+    # (selects elements from log_probs along dim == 2, the vocabulary axis, using labels from
+    # shift_labels -- unsqueeze(-1) gives shift_labels a third dimension)
     next_token_log_probs = log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
 
-    # Convert to surprisal: -log2(p)
+    # Convert to surprisal: -log2(p) by invoking Change of Base Formula 
+    # (the next_token_log_probs are in natural log, so we need to change to log_2 by dividing over log_e(2))
     surprisals = -next_token_log_probs / math.log(2)
-
-    tokens = tokenizer.convert_ids_to_tokens(shift_labels.squeeze().tolist())
-    return list(zip(tokens, surprisals.squeeze().tolist()))
+    
+    tokens = tokenizer.convert_ids_to_tokens(shift_labels.squeeze().tolist()) 
+    token_surprisals = list(zip(tokens, surprisals.squeeze().tolist()))
+    
+    return token_surprisals
 ## example use: 
 # text = "The quick brown fox jumps over the lazy dog"
 # surprisal_output = compute_surprisal(text)
 
 # for token, surprisal in surprisal_output:
 #     print(f"Token: {token:<15} Surprisal: {surprisal:.4f}")
+
+def clean_up_surprisals(token_surprisals): 
+
+    words = []
+    current_word = []
+    current_surprisals = []
+
+    # Combine surprisals (by summing) for words split into multiple subword tokens
+    # Use the whitespace tokens to find word-initial segments
+    for token, surprisal in token_surprisals:
+        if " " in token and current_word:  # new word starts
+            words.append(("".join(current_word), current_surprisals)) #save the last word
+            current_word = [token] #reset for the new word
+            current_surprisals = [surprisal]
+        elif "." in token and current_word:
+            words.append(("".join(current_word), current_surprisals))
+        elif "!" in token and current_word:
+            words.append(("".join(current_word), current_surprisals))
+        elif "?" in token and current_word:
+            words.append("".join(current_word), current_surprisals)
+        else:
+            current_word.append(token)
+            current_surprisals.append(surprisal)
+
+    # Remove the whitespace token surprisals
+    # (this will also remove any words that don't have whitespaces in front of them, which 
+    # takes care of sequences that begin with tokenizer-truncated contractions
+    # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisals for " `m ")
+    rmwh_surprisals = [(i.split(" ")[2],j[1:]) for i,j in words if i.startswith(" ")]
+
+    # Combine the surprisals for words with more than one subword token
+    return [(i,np.sum(j)) for i,j in rmwh_surprisals]
+
 
 def compute_surprisal_batch(texts):
     # Tokenize with padding
