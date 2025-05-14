@@ -148,6 +148,8 @@ def main(df, mpath, revisions, cachepath):
             df_results['step'] = int(checkpoint.replace("step", ""))
             df_results["n_params"] = n_params
 
+            df_results.to_csv(os.path.join(savepath,filename))
+
             if cachepath: 
                 utils.clear_model_from_cache(cachepath)
 
