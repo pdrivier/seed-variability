@@ -51,8 +51,10 @@ def organize_reading_materials(sentence_path, DATASETS):
         })
         all_sentences.append(temp_df)
 
+
     # Concatenate all datasets into a single DataFrame
     df = pd.concat(all_sentences, ignore_index=True)
+
 
     return df
 
@@ -173,15 +175,12 @@ def compute_surprisal(text,tokenizer,model,device):
     surprisals = -next_token_log_probs / math.log(2)
     
     tokens = tokenizer.convert_ids_to_tokens(shift_labels.squeeze().tolist()) 
-    token_surprisals = list(zip(tokens, surprisals.squeeze().tolist()))
+    if not len(tokens) == 1:
+        token_surprisals = list(zip(tokens, surprisals.squeeze().tolist()))
+    else: 
+        token_surprisals = []
 
     return token_surprisals
-## example use: 
-# text = "The quick brown fox jumps over the lazy dog"
-# surprisal_output = compute_surprisal(text)
-
-# for token, surprisal in surprisal_output:
-#     print(f"Token: {token:<15} Surprisal: {surprisal:.4f}")
 
 def clean_up_surprisals(token_surprisals,dataset_name): 
     """dataset_name: string, dictates the way to split tokens"""
@@ -191,11 +190,13 @@ def clean_up_surprisals(token_surprisals,dataset_name):
 
     # Combine surprisals (by summing) for words split into multiple subword tokens
     # Use the whitespace tokens to find word-initial segments
+   
 
-    # Treat each dataset differently (TODO: figure out why sentences from different datasets get tokenized differently)
-    if dataset_name == "natstories": 
+    for token, surprisal in token_surprisals:
 
-        for token,surprisal in token_surprisals:
+        # Treat each dataset differently (TODO: figure out why sentences from different datasets get tokenized differently)
+        if dataset_name == "natstories": 
+            
             if token.startswith("Ġ"):
                 words.append(("".join(current_word), current_surprisals))
                 current_word = [token]
@@ -205,12 +206,12 @@ def clean_up_surprisals(token_surprisals,dataset_name):
             else:
                 current_word.append(token)
                 current_surprisals.append(surprisal)
-        #remove the word-initial special marker
-        final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
 
-    elif dataset_name == "geco":
-    
-        for token, surprisal in token_surprisals:
+            #remove the word-initial special marker
+            final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
+
+        elif dataset_name == "geco":
+        
             if " " in token and current_word:  # new word starts
                 words.append(("".join(current_word), current_surprisals)) #save the last word
                 current_word = [token] #reset for the new word
@@ -230,19 +231,50 @@ def clean_up_surprisals(token_surprisals,dataset_name):
                 current_word.append(token)
                 current_surprisals.append(surprisal)
 
-        # Remove last element if it's a whitespace
-        words = [(i,j) for i,j in words if not i.endswith(" ")]
+            # Remove last element if it's a whitespace
+            words = [(i,j) for i,j in words if not i.endswith(" ")]
 
-        # Remove the whitespace token surprisals
-        # (this will also remove any words that don't have whitespaces in front of them, which 
-        # takes care of anything that had been attached to the initial word in sentence
-        # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
-        # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
-        final_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
-
+            # Remove the whitespace token surprisals
+            # (this will also remove any words that don't have whitespaces in front of them, which 
+            # takes care of anything that had been attached to the initial word in sentence
+            # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
+            # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
+            final_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
 
     # Combine the surprisals for words with more than one subword token
     return [(i,np.sum(j)) for i,j in final_surprisals]
+
+def batch_compute_surprisal(sentences: list[str], model, tokenizer, device, max_length=512):
+    encoded = tokenizer(
+        sentences,
+        padding=True,
+        truncation=True,
+        max_length=max_length,
+        return_tensors='pt'
+    )
+
+    input_ids = encoded["input_ids"].to(device)
+    attention_mask = encoded["attention_mask"].to(device)
+
+    with torch.no_grad():
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        logits = outputs.logits
+
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+    surprisal_results = []
+
+    for i, sentence in enumerate(sentences):
+        ids = input_ids[i]
+        lp = log_probs[i]
+
+        # Shift for causal: prediction of token i is at position i-1
+        token_surprisals = -lp[range(len(ids) - 1), ids[1:]].cpu().tolist()
+        tokens = tokenizer.convert_ids_to_tokens(ids[1:])
+
+        word_surprisals = list(zip(tokens, token_surprisals))
+        surprisal_results.append(word_surprisals)
+
+    return surprisal_results  # List of lists: one entry per sentence
 
 def clear_model_from_cache(cachepath):
     # local example: "../../../../../../.cache/huggingface/hub/"
@@ -251,7 +283,9 @@ def clear_model_from_cache(cachepath):
     folders = os.listdir(cachepath)
     targets = [f for f in folders if f.startswith("models")]
     for mdl in targets:
-        shutil.rmtree(mdl)
+        shutil.rmtree(os.path.join(cachepath,mdl))
 
     return
+
+
 

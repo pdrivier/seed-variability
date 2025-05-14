@@ -87,7 +87,7 @@ def main(df, mpath, revisions, cachepath):
 
             ## Set up code to grab surprisals below
             # would be more efficient if set up in batches but alas
-            for ix, row in tqdm(df.iterrows()):
+            for ix, row in tqdm(df.iterrows(),total=len(df)):
                 
                 # Load the current sentence
                 sentence = row["sentences"]
@@ -95,16 +95,48 @@ def main(df, mpath, revisions, cachepath):
 
                 # Compute and clean up surprisals
                 token_surprisals = utils.compute_surprisal(sentence,tokenizer,model,device)
-                word_surprisals = utils.clean_up_surprisals(token_surprisals, dataset_name)
 
-                for word, surprisal in word_surprisals:
-                    ### Add to results dictionary
-                    results.append({
-                        "dataset_name": dataset_name,
-                        'sentence': sentence,
-                        'word': word,
-                        'surprisal': surprisal
-                    })
+                if len(token_surprisals) > 1:
+                    
+                    word_surprisals = utils.clean_up_surprisals(token_surprisals, dataset_name)
+
+                    
+                    for word, surprisal in word_surprisals:
+                        ### Add to results dictionary
+                        results.append({
+                            "dataset_name": dataset_name,
+                            'sentence': sentence,
+                            'word': word,
+                            'surprisal': surprisal
+                        })
+
+                #TODO: see if you can polish the below to get surprisals for batched sentences
+                # BATCH_SIZE = 16
+                # batched_sentences = []
+                # meta = []
+
+                # for _, row in df.iterrows():
+                #     sentence = row["sentences"]
+                #     dataset_name = row["dataset_name"]
+                    
+                #     batched_sentences.append(sentence)
+                #     meta.append((sentence, dataset_name))
+                    
+                #     if len(batched_sentences) >= BATCH_SIZE:
+                #         results_batch = batch_compute_surprisal(batched_sentences, model, tokenizer, device)
+
+                #         for (sentence, dataset_name), word_surprisals in zip(meta, results_batch):
+                #             for word, surprisal in word_surprisals:
+                #                 results.append({
+                #                     "dataset_name": dataset_name,
+                #                     "sentence": sentence,
+                #                     "word": word,
+                #                     "surprisal": surprisal
+                #                 })
+
+                #         batched_sentences = []
+                #         meta = []
+
 
 
         
@@ -117,7 +149,7 @@ def main(df, mpath, revisions, cachepath):
             df_results["n_params"] = n_params
 
             if cachepath: 
-                clear_model_from_cache(cachepath)
+                utils.clear_model_from_cache(cachepath)
 
 
 
