@@ -34,7 +34,7 @@ DATASETS = [
 
 
 ### Handle logic for a dataset/model
-def main(df, mpath, revisions):
+def main(df, mpath, revisions, cachepath):
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -89,36 +89,42 @@ def main(df, mpath, revisions):
             # would be more efficient if set up in batches but alas
             for ix,row in tqdm(df.iterrows()):
 				
+                # Load the current sentence
                 sentence = row["sentences"]
-				surprisal_output = compute_surprisal(sentence)
+                dataset_name = row["dataset_name"]
 
-				for token, surprisal in surprisal_output:
-				    print(f"Token: {token:<15} Surprisal: {surprisal:.4f}")
+                # Compute and clean up surprisals
+				token_surprisals = compute_surprisal(sentence)
+                word_surprisals = clean_up_surprisals(token_surprisals,dataset_name)
+
+				for word, surprisal in word_surprisals:
+				    # print(f"Token: {word:<15} Surprisal: {surprisal:.4f}")
 
                 ### Add to results dictionary
                         results.append({
-                            'sentence': row['sentence'],
-                            'word': row['word'],
-                            'string': row['string'],
-                            'disambiguating_word': disambiguating_word,
-                            'Attention': attention_info['attention_to_disambiguating'],
-                            'Entropy': attention_info['entropy'],
-                            'Head': head,
-                            'Layer': layer
+                            "dataset_name": dataset_name,
+                            'sentence': row['sentences'],
+                            'word': word,
+                            'surprisal': row['surprisal']
                         })
         
             df_results = pd.DataFrame(results)
-            df_results['n_params'] = np.repeat(n_params,df_results.shape[0])
-            df_results['mpath'] = mpath
+            df_results['model'] = mpath.split("/")[1]
             df_results['revision'] = checkpoint
             df_results['seed_name'] = seed_name
             df_results['seed'] = seed
             df_results['step'] = int(checkpoint.replace("step", ""))
 
+            if cachepath: 
+                clear_model_from_cache(cachepath)
+
 
 
 
 if __name__ == "__main__":
+
+    ## Specify the model cache, so you can delete models after each run
+    cachepath = "../../../../../../.cache/huggingface/hub/"
 
     ## Read stimuli
     df = utils.organize_reading_materials(sentence_path,DATASETS)
@@ -128,11 +134,11 @@ if __name__ == "__main__":
         os.mkdir(savedfpath)
     df.to_csv(os.path.join(savedfpath,filename))
 
-
     ### Get model checkpoints/revisions
     revisions = utils.generate_revisions()
 
     ## Run main
-    main(df, MODELS[0], revisions)
+    main(df, MODELS[0], revisions, cachepath)
+
 
 

@@ -4,6 +4,7 @@ import functools
 import math
 import os
 import random
+import shutil
 import torch
 
 from torch.nn.functional import softmax
@@ -182,41 +183,72 @@ def compute_surprisal(text):
 # for token, surprisal in surprisal_output:
 #     print(f"Token: {token:<15} Surprisal: {surprisal:.4f}")
 
-def clean_up_surprisals(token_surprisals): 
-
+def clean_up_surprisals(token_surprisals,dataset_name): 
+    """dataset_name: string, dictates the way to split tokens"""
     words = []
     current_word = []
     current_surprisals = []
 
     # Combine surprisals (by summing) for words split into multiple subword tokens
     # Use the whitespace tokens to find word-initial segments
-    for token, surprisal in token_surprisals:
-        if " " in token and current_word:  # new word starts
-            words.append(("".join(current_word), current_surprisals)) #save the last word
-            current_word = [token] #reset for the new word
-            current_surprisals = [surprisal]
-        elif token.startswith("..."): #new word starts
-            current_word.append(token)
-            current_surprisals.append(surprisal)
-        elif not token.startswith("...") and ("..." in current_word or "...." in current_word) and (not any(elem in token and current_word for elem in [".","!","?"])) : #add leading whitespace 
-            if not " " in current_word:
-                current_word.insert(0, " ") #prepend leading whitespace
-                current_surprisals.insert(0,0) #prepend 0 correspondign to new whitespace
-            current_word.append(token)
-            current_surprisals.append(surprisal)
-        elif any(elem in token and current_word for elem in [".","!","?"]):
-            words.append(("".join(current_word), current_surprisals))
-        else:
-            current_word.append(token)
-            current_surprisals.append(surprisal)
 
-    # Remove the whitespace token surprisals
-    # (this will also remove any words that don't have whitespaces in front of them, which 
-    # takes care of anything that had been attached to the initial word in sentence
-    # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
-    # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
-    rmwh_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
+    # Treat each dataset differently (TODO: figure out why sentences from different datasets get tokenized differently)
+    if dataset_name == "natstories": 
+
+        for token,surprisal in token_surprisals:
+            if token.startswith("Ġ"):
+                words.append(("".join(current_word), current_surprisals))
+                current_word = [token]
+                current_surprisals = [surprisal]
+            elif any(elem in token and current_word for elem in [".","!","?"]):
+                words.append(("".join(current_word), current_surprisals))
+            else:
+                current_word.append(token)
+                current_surprisals.append(surprisal)
+        #remove the word-initial special marker
+        final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
+
+    elif dataset_name == "geco":
+    
+        for token, surprisal in token_surprisals:
+            if " " in token and current_word:  # new word starts
+                words.append(("".join(current_word), current_surprisals)) #save the last word
+                current_word = [token] #reset for the new word
+                current_surprisals = [surprisal]
+            elif token.startswith("..."): #new word starts
+                current_word.append(token)
+                current_surprisals.append(surprisal)
+            elif not token.startswith("...") and ("..." in current_word or "...." in current_word) and (not any(elem in token and current_word for elem in [".","!","?"])) : #add leading whitespace 
+                if not " " in current_word:
+                    current_word.insert(0, " ") #prepend leading whitespace
+                    current_surprisals.insert(0,0) #prepend 0 correspondign to new whitespace
+                current_word.append(token)
+                current_surprisals.append(surprisal)
+            elif any(elem in token and current_word for elem in [".","!","?"]):
+                words.append(("".join(current_word), current_surprisals))
+            else:
+                current_word.append(token)
+                current_surprisals.append(surprisal)
+
+        # Remove the whitespace token surprisals
+        # (this will also remove any words that don't have whitespaces in front of them, which 
+        # takes care of anything that had been attached to the initial word in sentence
+        # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
+        # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
+        final_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
+
 
     # Combine the surprisals for words with more than one subword token
-    return [(i,np.sum(j)) for i,j in rmwh_surprisals]
+    return [(i,np.sum(j)) for i,j in final_surprisals]
+
+def clear_model_from_cache(cachepath):
+    # local example: "../../../../../../.cache/huggingface/hub/"
+    # Head to the specified cache directory 
+
+    folders = os.listdir(cachepath)
+    targets = [f for f in folders if f.startswith("models")]
+    for mdl in targets:
+        shutil.rmtree(mdl)
+
+    return
 
