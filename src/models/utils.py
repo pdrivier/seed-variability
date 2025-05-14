@@ -138,7 +138,7 @@ def count_parameters(model):
     
     return total_params
 
-def compute_surprisal(text):
+def compute_surprisal(text,tokenizer,model,device):
 
     # Tokenize input
     inputs = tokenizer(text, return_tensors="pt", add_special_tokens = True)
@@ -229,6 +229,9 @@ def clean_up_surprisals(token_surprisals,dataset_name):
             else:
                 current_word.append(token)
                 current_surprisals.append(surprisal)
+
+        # Remove last element if it's a whitespace
+        words = [(i,j) for i,j in words if not i.endswith(" ")]
 
         # Remove the whitespace token surprisals
         # (this will also remove any words that don't have whitespaces in front of them, which 

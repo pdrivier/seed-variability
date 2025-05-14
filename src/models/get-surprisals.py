@@ -87,26 +87,26 @@ def main(df, mpath, revisions, cachepath):
 
             ## Set up code to grab surprisals below
             # would be more efficient if set up in batches but alas
-            for ix,row in tqdm(df.iterrows()):
-				
+            for ix, row in tqdm(df.iterrows()):
+                
                 # Load the current sentence
                 sentence = row["sentences"]
                 dataset_name = row["dataset_name"]
 
                 # Compute and clean up surprisals
-				token_surprisals = compute_surprisal(sentence)
-                word_surprisals = clean_up_surprisals(token_surprisals,dataset_name)
+                token_surprisals = utils.compute_surprisal(sentence,tokenizer,model,device)
+                word_surprisals = utils.clean_up_surprisals(token_surprisals, dataset_name)
 
-				for word, surprisal in word_surprisals:
-				    # print(f"Token: {word:<15} Surprisal: {surprisal:.4f}")
+                for word, surprisal in word_surprisals:
+                    ### Add to results dictionary
+                    results.append({
+                        "dataset_name": dataset_name,
+                        'sentence': sentence,
+                        'word': word,
+                        'surprisal': surprisal
+                    })
 
-                ### Add to results dictionary
-                        results.append({
-                            "dataset_name": dataset_name,
-                            'sentence': row['sentences'],
-                            'word': word,
-                            'surprisal': row['surprisal']
-                        })
+
         
             df_results = pd.DataFrame(results)
             df_results['model'] = mpath.split("/")[1]
@@ -114,6 +114,7 @@ def main(df, mpath, revisions, cachepath):
             df_results['seed_name'] = seed_name
             df_results['seed'] = seed
             df_results['step'] = int(checkpoint.replace("step", ""))
+            df_results["n_params"] = n_params
 
             if cachepath: 
                 clear_model_from_cache(cachepath)
