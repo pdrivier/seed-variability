@@ -93,7 +93,7 @@ def main(df, mpath, revisions, cachepath):
                 sentence = row["sentences"]
                 dataset_name = row["dataset_name"]
 
-                ### TODO: replace double spaces in GECO
+                ### Replace double spaces in GECO
                 sentence = sentence.replace("  ", " ")
 
                 # Compute and clean up surprisals

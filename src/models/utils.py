@@ -202,21 +202,20 @@ def clean_up_surprisals(token_surprisals,dataset_name):
     # Use the whitespace tokens to find word-initial segments
    
 
-    for token, surprisal in token_surprisals:
-
-        # Treat each dataset differently (TODO: figure out why sentences from different datasets get tokenized differently)
+    for i,(token, surprisal) in enumerate(token_surprisals):
+        # Treat each dataset differently 
         if dataset_name in ["natstories", "geco"]: 
-            
-            if token.startswith("Ġ"):
+            if (token.startswith("Ġ")) and (i+1 < len(token_surprisals)):
                 words.append(("".join(current_word), current_surprisals))
                 current_word = [token]
                 current_surprisals = [surprisal]
             elif any(elem in token and current_word for elem in [".","!","?"]):
                 words.append(("".join(current_word), current_surprisals))
+            elif (token.startswith("Ġ")) and (i+1 == len(token_surprisals)):
+                continue
             else:
                 current_word.append(token)
                 current_surprisals.append(surprisal)
-
             #remove the word-initial special marker
             final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
 
