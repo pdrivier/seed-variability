@@ -70,6 +70,16 @@ def generate_revisions():
     # Format each step as "stepX"
     return [f"step{step}" for step in revisions]
 
+
+def generate_revisions_test():
+    """Manually generate the list of checkpoints available for Pythia modeling suite"""
+    
+    # Fixed initial steps
+    revisions = [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000, 10000, 40000, 100000, 143000]
+    
+    # Format each step as "stepX"
+    return [f"step{step}" for step in revisions]
+
 def find_sublist_index(mylist, sublist):
     """Find the first occurence of sublist in list.
     Return the start and end indices of sublist in list"""
@@ -195,7 +205,7 @@ def clean_up_surprisals(token_surprisals,dataset_name):
     for token, surprisal in token_surprisals:
 
         # Treat each dataset differently (TODO: figure out why sentences from different datasets get tokenized differently)
-        if dataset_name == "natstories": 
+        if dataset_name in ["natstories", "geco"]: 
             
             if token.startswith("Ġ"):
                 words.append(("".join(current_word), current_surprisals))
@@ -241,8 +251,11 @@ def clean_up_surprisals(token_surprisals,dataset_name):
             # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
             final_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
 
+
     # Combine the surprisals for words with more than one subword token
-    return [(i,np.sum(j)) for i,j in final_surprisals]
+    # return [(i,np.sum(j)) for i,j in final_surprisals]
+    ### TODO: Sean added this to also track number of tokens
+    return [(i, np.sum(j), len(j)) for i,j in final_surprisals]
 
 def batch_compute_surprisal(sentences: list[str], model, tokenizer, device, max_length=512):
     encoded = tokenizer(

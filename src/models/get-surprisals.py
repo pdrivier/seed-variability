@@ -14,9 +14,9 @@ from transformers import GPTNeoXForCausalLM, AutoTokenizer
 
 ## List all models
 MODELS = [
-         'EleutherAI/pythia-14m',
-         # 'EleutherAI/pythia-70m',
-         # 'EleutherAI/pythia-160m',
+         'EleutherAI/pythia-14m', ### need more steps
+         # 'EleutherAI/pythia-70m', ### need more steps
+         # 'EleutherAI/pythia-160m', ### need more steps
          #  'EleutherAI/pythia-410m',
           # 'EleutherAI/pythia-1b',
           # 'EleutherAI/pythia-1.4b',
@@ -93,21 +93,26 @@ def main(df, mpath, revisions, cachepath):
                 sentence = row["sentences"]
                 dataset_name = row["dataset_name"]
 
+                ### TODO: replace double spaces in GECO
+                sentence = sentence.replace("  ", " ")
+
                 # Compute and clean up surprisals
                 token_surprisals = utils.compute_surprisal(sentence,tokenizer,model,device)
+
 
                 if len(token_surprisals) > 1:
                     
                     word_surprisals = utils.clean_up_surprisals(token_surprisals, dataset_name)
 
                     
-                    for word, surprisal in word_surprisals:
+                    for word, surprisal, num_tokens in word_surprisals:
                         ### Add to results dictionary
                         results.append({
                             "dataset_name": dataset_name,
                             'sentence': sentence,
                             'word': word,
-                            'surprisal': surprisal
+                            'surprisal': surprisal,
+                            'num_tokens': num_tokens
                         })
 
                 #TODO: see if you can polish the below to get surprisals for batched sentences
@@ -150,8 +155,8 @@ def main(df, mpath, revisions, cachepath):
 
             df_results.to_csv(os.path.join(savepath,filename))
 
-            if cachepath: 
-                utils.clear_model_from_cache(cachepath)
+            # if cachepath: 
+            #    utils.clear_model_from_cache(cachepath)
 
 
 
@@ -170,7 +175,7 @@ if __name__ == "__main__":
     df.to_csv(os.path.join(savedfpath,filename))
 
     ### Get model checkpoints/revisions
-    revisions = utils.generate_revisions()
+    revisions = utils.generate_revisions_test()
 
     ## Run main
     main(df, MODELS[0], revisions, cachepath)

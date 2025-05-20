@@ -1,0 +1,348 @@
+---
+title: "Variation in surprisal across seeds and scales"
+author: "Pam Rivière and Sean Trott"
+date: "March 17, 2025"
+output:
+  html_document:
+    keep_md: yes
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi = 300, fig.format = "pdf")
+```
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(lme4)
+library(viridis)
+library(ggridges)
+library(lmerTest)
+library(ggrepel)
+library(ggcorrplot)
+
+all_colors <- viridis::viridis(10, option = "mako")
+my_colors <- all_colors[c(3, 5, 7)]  # Selecting specific colors from the palette
+```
+
+# Load Pythia data
+
+
+Here, we analyze data looking at the average attention each head gives from each token to the previous token.
+
+```{r}
+# setwd("/Users/seantrott/Dropbox/UCSD/Research/NLMs/epistemology/seed-variability/src/analysis")
+directory_path <- "../../data/processed/"
+csv_files <- list.files(path = directory_path, pattern = "*.csv", full.names = TRUE)
+csv_list <- csv_files %>%
+  map(~ read_csv(.))
+df_pythia_models <- bind_rows(csv_list) 
+nrow(df_pythia_models)
+
+table(df_pythia_models$seed)
+table(df_pythia_models$dataset_name)
+max(df_pythia_models$step)
+
+### Normalize surprisal by #tokens
+df_pythia_models = df_pythia_models %>%
+  mutate(surprisal_normed = surprisal / num_tokens)
+
+```
+
+
+# Surprisal over time by seed
+
+**TODO**:
+
+- Mean/SD surprisal over time, by seed, by architecture. 
+- Scaling law in `surprisal ~ #params` over different checkpoints. 
+- Do larger models have more or less variance across seeds in surprisal? 
+- Are larger models more or less *correlated* at a word-by-word level? 
+- Are larger models correlated across seeds more *quickly* throughout pretraining? What about with smaller models, i.e., are larger models already capturing the wisdom of the crowd of smaller models?
+(For this, compare the *average* of 14m at a given timepoint with each individual 14m seed, as well as with 70m at that timepoint.)
+- How does within-model (across-seed) correlation compare to across-models? When does a model "look like itself"? (MDS, etc.)
+- Compare each model to a set of baseline models at each timepoint (e.g., GPT-2), to get a sense for the similarity to another model family.
+- How do these trajectories compare to the trajectories of weight changes?
+- Also do with Pythia cosine distances for RAW-C?
+
+
+```{r}
+df_surprisal_by_seed = df_pythia_models %>% 
+  group_by(n_params, model, seed_name, revision, step, seed) %>%
+  summarise(mean_surprisal = mean(surprisal_normed),
+            sd_surprisal = sd(surprisal_normed)) %>%
+  mutate(step_modded = step + 1)
+
+df_surprisal_avg = df_pythia_models %>% 
+  group_by(n_params,model, revision, step) %>%
+  summarise(mean_surprisal = mean(surprisal_normed),
+            sd_surprisal = sd(surprisal_normed))  %>%
+  mutate(step_modded = step + 1)
+
+
+df_surprisal_by_seed %>%
+  ggplot(aes(x = step_modded,
+             y = sd_surprisal,
+             color = seed_name)) +
+  geom_line(size = .7, alpha = .7, linetype = "dotted") +
+  geom_line(data = df_surprisal_avg, aes(x = step_modded, y = sd_surprisal), 
+            color = "black", size = 1.3) + # Smoothed average
+  geom_point(data = df_surprisal_avg, aes(x = step_modded, y = sd_surprisal), 
+             color = "black", size = 2) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "SD Surprisal",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_viridis(option = "mako", discrete=TRUE) +
+  facet_wrap(~reorder(model, n_params))
+
+
+
+### Seed-wise averages
+df_surprisal_avg = df_surprisal_by_seed %>% 
+  group_by(n_params,model, revision, step) %>%
+  summarise(mean_surprisal_across_seeds = mean(mean_surprisal),
+            surprisal_var_across_seeds = sd(mean_surprisal),
+            surprisal_mean_range = max(mean_surprisal) - min(mean_surprisal),
+            se_surprisal = sd(mean_surprisal) /sqrt(n()))  %>%
+  mutate(step_modded = step + 1)
+
+ggplot() +
+  # Raw points from individual seeds
+  geom_point(data = df_surprisal_by_seed,
+             aes(x = step_modded,
+                 y = mean_surprisal,
+                 color = reorder(model, n_params)),
+             size = 3, alpha = 0.3) +
+
+  # Summary lines and points
+  geom_line(data = df_surprisal_avg,
+            aes(x = step_modded,
+                y = mean_surprisal_across_seeds,
+                color = model),
+            size = .7,
+            linetype = "dashed") +
+  # Formatting
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Mean Surprisal",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                   begin = 0.8, end = 0.15))
+
+
+
+df_surprisal_avg %>%
+  ggplot(aes(x = step_modded,
+             y = surprisal_var_across_seeds,
+             color = model)) +
+  geom_line(size = 1.3) +
+  geom_point(size = 4, alpha = .4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "SD Surprisal across seeds",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                begin = 0.8, end = 0.15))
+
+
+
+df_surprisal_avg %>%
+  ggplot(aes(x = step_modded,
+             y = surprisal_mean_range,
+             color = model)) +
+  geom_line(size = 1.3) +
+  geom_point(size = 4, alpha = .4) +
+  theme_minimal() +
+  labs(x = "Training Step (Log10)",
+       y = "Range in mean surprisal across seeds",
+       color = "") +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                begin = 0.8, end = 0.15))
+
+
+```
+
+
+# Across-seed correlations
+
+**TODO**: Figure this out...right now code is not dealing well with multiple words per sentence (e.g., "the") when pivoting wider. (Solution: just avg across those instances)
+
+
+**TODO**: Weird effect where correlation is higher early on...not sure what this means re: initialization? (Slution: it was about multi-token words)
+
+
+```{r}
+
+#### By model/seed
+df_wide <- df_pythia_models %>%
+  filter(seed < 9) %>% ### REMOVE
+  mutate(model_id = paste(model, "-", seed_name)) %>%
+  select(step, model_id, surprisal_normed, sentence, word) %>%
+  group_by(model_id, step, sentence) %>%
+  summarise(surprisal = mean(surprisal_normed, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(
+    names_from = model_id,
+    values_from = surprisal
+  )
+
+
+cor_matrix <- df_wide %>%
+  filter(step == 16) %>%
+  mutate(`pythia-14m - mean` = rowMeans(select(., starts_with("pythia-14m")), na.rm = TRUE),
+         `pythia-70m - mean` = rowMeans(select(., starts_with("pythia-70m")), na.rm = TRUE),
+         `pythia-160m - mean` = rowMeans(select(., starts_with("pythia-160m")), na.rm = TRUE)) %>%
+  select(-step, -sentence) %>%
+  cor(use = "pairwise.complete.obs")
+
+
+
+# Plot the correlation matrix
+ggcorrplot(cor_matrix, 
+           hc.order = FALSE,
+           method = "square" 
+          )
+
+
+
+cor_by_group <- df_wide %>%
+  group_by(step) %>%
+  summarise(
+    cor_matrix = list(
+      cor(select(cur_data(), starts_with("pythia-")), use = "pairwise.complete.obs")
+    ),
+    .groups = "drop"
+  )
+
+
+cor_long <- cor_by_group %>%
+  mutate(cor_df = map(cor_matrix, ~ as.data.frame(as.table(.)))) %>%
+  unnest(cor_df) %>%
+  rename(seed1 = Var1, seed2 = Var2, correlation = Freq) %>%
+  filter(seed1 != seed2) %>%
+  separate(seed1, into = c("model1", "seed_name1"), sep = " - ") %>%
+  separate(seed2, into = c("model2", "seed_name2"), sep = " - ") %>%
+  mutate(same_model = model1 == model2)
+
+# Step 2: Compute mean correlation per step (and optionally model)
+mean_cor_by_step <- cor_long %>%
+  group_by(same_model, step) %>%
+  summarise(
+    mean_corr = mean(correlation, na.rm = TRUE),
+    se_corr = sd(correlation, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(mean_cor_by_step, aes(x = step + 1, y = mean_corr, color = same_model)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  geom_ribbon(aes(ymin = mean_corr - 2 * se_corr,
+                  ymax = mean_corr + 2 * se_corr,
+                  fill = same_model),
+              alpha = 0.5, color = NA) +
+  theme_minimal() +
+  labs(
+    title = "Inter-seed Correlation",
+    x = "Training Step (Log10)",
+    y = "Mean Correlation",
+    color = "Same Model",
+    fill = "Same Model"
+  ) +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  scale_x_log10() +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) +
+  scale_fill_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                  begin = 0.8, end = 0.15)) 
+
+
+summary(lmer(correlation ~ step * same_model + 
+               (1 | seed_name1) + (1 | seed_name2), data = cor_long))
+
+
+
+
+##### Multi-dimensional scaling
+mds_by_step <- df_wide %>%
+  filter(step <= 16) %>%
+  group_by(step) %>%
+  summarise(
+    mds_df = list({
+      cor_mat <- cor(select(cur_data(), starts_with("pythia-")), use = "pairwise.complete.obs")
+      dist_mat <- as.dist(1 - cor_mat)
+      mds <- cmdscale(dist_mat, k = 2)
+      as_tibble(mds, .name_repair = "unique") %>%
+        mutate(model_id = colnames(cor_mat)) 
+    }),
+    .groups = "drop"
+  ) %>%
+  unnest(mds_df) %>%
+  separate(model_id, into = c("model", "seed"), sep = " - ") %>%
+  rename(x = `...1`, y = `...2`)
+
+ggplot(mds_by_step, aes(x, y, color = model)) +
+  geom_point() +
+  facet_wrap(~ step) +
+  theme_bw() +
+  labs(x = "MDS 1",
+       y = "MDS 2",
+       color = "") +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) 
+
+
+# Create animated plot
+p <- ggplot(mds_by_step, aes(x = x, y = y, color = model)) +
+  geom_point(size = 3, alpha = 0.8) +
+  theme_minimal(base_size = 14) +
+  labs(title = "MDS of Model Similarities (Step: {closest_state})",
+       x = "MDS Dimension 1",
+       y = "MDS Dimension 2",
+       color = "Model") +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) +
+  transition_states(step, transition_length = 2, state_length = 1) +
+  ease_aes('linear')
+
+# Render
+anim <- animate(p, renderer = gifski_renderer(), width = 800, height = 600, 
+                fps = 10, duration = 10)
+anim
+
+
+```
+
