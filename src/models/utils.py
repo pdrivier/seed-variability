@@ -198,63 +198,45 @@ def clean_up_surprisals(token_surprisals,dataset_name):
     current_word = []
     current_surprisals = []
 
-    # Combine surprisals (by summing) for words split into multiple subword tokens
-    # Use the whitespace tokens to find word-initial segments
-   
-
+    # Iterate through all tokens and put them together into single words when they 
+    # correspond to subword tokens; collect their surprisals for later summing
+    
     for i,(token, surprisal) in enumerate(token_surprisals):
-        # Treat each dataset differently 
+        # Treat each dataset differently if necessary
         if dataset_name in ["natstories", "geco"]: 
             if (token.startswith("Ġ")) and (i+1 < len(token_surprisals)):
                 words.append(("".join(current_word), current_surprisals))
                 current_word = [token]
                 current_surprisals = [surprisal]
-            elif any(elem in token and current_word for elem in [".","!","?"]):
+            elif any(elem in token and current_word for elem in [".","!","?"]) and (token != "..."):
                 words.append(("".join(current_word), current_surprisals))
+            elif "..." in token: 
+                current_word.append(token)
+                current_surprisals.append(surprisal)
             elif (token.startswith("Ġ")) and (i+1 == len(token_surprisals)):
                 continue
             else:
                 current_word.append(token)
                 current_surprisals.append(surprisal)
-            #remove the word-initial special marker
-            final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
-
-        elif dataset_name == "geco":
-        
-            if " " in token and current_word:  # new word starts
-                words.append(("".join(current_word), current_surprisals)) #save the last word
-                current_word = [token] #reset for the new word
-                current_surprisals = [surprisal]
-            elif token.startswith("..."): #new word starts
-                current_word.append(token)
-                current_surprisals.append(surprisal)
-            elif not token.startswith("...") and ("..." in current_word or "...." in current_word) and (not any(elem in token and current_word for elem in [".","!","?"])) : #add leading whitespace 
-                if not " " in current_word:
-                    current_word.insert(0, " ") #prepend leading whitespace
-                    current_surprisals.insert(0,0) #prepend 0 correspondign to new whitespace
-                current_word.append(token)
-                current_surprisals.append(surprisal)
-            elif any(elem in token and current_word for elem in [".","!","?"]):
-                words.append(("".join(current_word), current_surprisals))
-            else:
-                current_word.append(token)
-                current_surprisals.append(surprisal)
-
-            # Remove last element if it's a whitespace
-            words = [(i,j) for i,j in words if not i.endswith(" ")]
-
-            # Remove the whitespace token surprisals
-            # (this will also remove any words that don't have whitespaces in front of them, which 
-            # takes care of anything that had been attached to the initial word in sentence
-            # e.g. "I'm sure I will like it" --> "'m sure I will like it" --> gets rid of surprisal for " `m ")
-            # e.g. "You, of course." --> ", of course" --> gets rid of surprisal for ","
-            final_surprisals = [(i.split()[0],j[1:]) for i,j in words if i.startswith(" ")]
+            
+    # Remove the word-initial special marker
+    final_surprisals = [(i.split("Ġ")[1],j) for i,j in words if i.startswith("Ġ")]
 
 
-    # Combine the surprisals for words with more than one subword token
+    # Combine the surprisals (by summing) for words with more than one subword token
     # return [(i,np.sum(j)) for i,j in final_surprisals]
     ### TODO: Sean added this to also track number of tokens
     return [(i, np.sum(j), len(j)) for i,j in final_surprisals]
+
+def assign_unique_word_ids_geco(word_surprisals, df_sentence_row):
+    row = df_sentence_row
+    dataset_name = "geco"
+    unique_identifiers = []
+    for ix, tup in enumerate(word_surprisals):
+        sentence_number = row["sentence_number"]
+        word_number = ix + 2 #adjust for zero-indexing (+1) and for skipping first word of sentence (+1)
+        unique_identifiers.append(dataset_name + "-" + sentence_number + "-" + str(word_number))
+    return unique_identifiers
 
 def batch_compute_surprisal(sentences: list[str], model, tokenizer, device, max_length=512):
     encoded = tokenizer(
@@ -287,6 +269,47 @@ def batch_compute_surprisal(sentences: list[str], model, tokenizer, device, max_
         surprisal_results.append(word_surprisals)
 
     return surprisal_results  # List of lists: one entry per sentence
+
+def wrangle_metadata_geco(df_reading, df_materials):
+    """Adds the sentence_id metadata to the dataframe containing reading time data."""
+    participants = list(set(df_reading["PP_NR"].tolist()))
+    gather_dfs = []
+    for ppt in participants:
+        subp = df_reading[df_reading["PP_NR"]==ppt]
+        first_word_idx = 0
+        current_trial_num = first_trial_num
+        for ix,row in df_materials.iloc[:1600].iterrows():
+            sentence = row["SENTENCE"]
+            sentence_id = row["SENTENCE_ID"]
+            trial_num = subp.iloc[first_word_idx]["TRIAL"]
+            last_word_idx = first_word_idx + row["NUMBER_WORDS_SENTENCE"]
+            sentence_df = subp.iloc[first_word_idx:last_word_idx] 
+            sent_read = " ".join(sentence_df["WORD"].values)
+            sent_mats = sentence.replace("  ", " ")
+            sent_mats = sent_mats[:-1]
+            if sent_read == sent_mats:
+                sentence_df["SENTENCE_ID"] = np.repeat(sentence_id,row["NUMBER_WORDS_SENTENCE"])
+            elif "\'" in sent_read: #the reading df sometimes adds backslashes to words
+                sent_read = sent_read.replace("\'","")
+                if len(sent_read) == len(sent_mats): #then probably same sentence
+                    sentence_df["SENTENCE_ID"] = np.repeat(sentence_id,row["NUMBER_WORDS_SENTENCE"])
+                else:
+                    sentence_df["SENTENCE_ID"] = np.nan
+            elif '"' in sent_read and not '"' in sent_mats: #the reading df sometimes has extra double quotes
+                sent_read = sent_read.replace('"',"")
+                if len(sent_read) == len(sent_mats): #then probably same sentence
+                    sentence_df["SENTENCE_ID"] = np.repeat(sentence_id,row["NUMBER_WORDS_SENTENCE"])
+                else: 
+                    sentence_df["SENTENCE_ID"] = np.nan
+            elif ("Mr" in sent_read or "Mr" in sent_mats) and (np.abs(len(sent_read) - len(sent_mats)) == 1):
+                # probably same sentence, sometimes materials writes out "Mr.s." where reading times df write "Mrs."
+                sentence_df["SENTENCE_ID"] = np.repeat(sentence_id,row["NUMBER_WORDS_SENTENCE"]) 
+            else: 
+                sentence_df["SENTENCE_ID"] = np.nan
+            gather_dfs.append(sentence_df)
+            # Reset the current index to keep tabs on which word ids to grab from reading times df
+            first_word_idx = last_word_idx 
+    return pd.concat(gather_dfs)
 
 def clear_model_from_cache(cachepath):
     # local example: "../../../../../../.cache/huggingface/hub/"
