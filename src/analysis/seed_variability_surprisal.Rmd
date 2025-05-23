@@ -45,10 +45,6 @@ table(df_pythia_models$seed)
 table(df_pythia_models$dataset_name)
 max(df_pythia_models$step)
 
-### Normalize surprisal by #tokens
-df_pythia_models = df_pythia_models %>%
-  mutate(surprisal_normed = surprisal / num_tokens)
-
 ```
 
 
@@ -69,44 +65,14 @@ df_pythia_models = df_pythia_models %>%
 
 
 ```{r}
+### Avg. by step
 df_surprisal_by_seed = df_pythia_models %>% 
   group_by(n_params, model, seed_name, revision, step, seed) %>%
-  summarise(mean_surprisal = mean(surprisal_normed),
-            sd_surprisal = sd(surprisal_normed)) %>%
+  summarise(mean_surprisal = mean(surprisal),
+            sd_surprisal = sd(surprisal)) %>%
   mutate(step_modded = step + 1)
 
-df_surprisal_avg = df_pythia_models %>% 
-  group_by(n_params,model, revision, step) %>%
-  summarise(mean_surprisal = mean(surprisal_normed),
-            sd_surprisal = sd(surprisal_normed))  %>%
-  mutate(step_modded = step + 1)
-
-
-df_surprisal_by_seed %>%
-  ggplot(aes(x = step_modded,
-             y = sd_surprisal,
-             color = seed_name)) +
-  geom_line(size = .7, alpha = .7, linetype = "dotted") +
-  geom_line(data = df_surprisal_avg, aes(x = step_modded, y = sd_surprisal), 
-            color = "black", size = 1.3) + # Smoothed average
-  geom_point(data = df_surprisal_avg, aes(x = step_modded, y = sd_surprisal), 
-             color = "black", size = 2) +
-  theme_minimal() +
-  labs(x = "Training Step (Log10)",
-       y = "SD Surprisal",
-       color = "") +
-  scale_x_log10() +
-  geom_vline(xintercept = 1000, 
-             linetype = "dotted", 
-             size = 1.2) +
-  theme(text = element_text(size = 15),
-        legend.position = "bottom") +
-  scale_color_viridis(option = "mako", discrete=TRUE) +
-  facet_wrap(~reorder(model, n_params))
-
-
-
-### Seed-wise averages
+### Avg. across seeds
 df_surprisal_avg = df_surprisal_by_seed %>% 
   group_by(n_params,model, revision, step) %>%
   summarise(mean_surprisal_across_seeds = mean(mean_surprisal),
@@ -115,34 +81,43 @@ df_surprisal_avg = df_surprisal_by_seed %>%
             se_surprisal = sd(mean_surprisal) /sqrt(n()))  %>%
   mutate(step_modded = step + 1)
 
+
 ggplot() +
-  # Raw points from individual seeds
+  # Individual seed points (fainter)
   geom_point(data = df_surprisal_by_seed,
              aes(x = step_modded,
                  y = mean_surprisal,
-                 color = reorder(model, n_params)),
-             size = 3, alpha = 0.3) +
+                 color = model),
+             size = 2, alpha = 0.3) +
 
-  # Summary lines and points
+  # Across-seed mean line
   geom_line(data = df_surprisal_avg,
             aes(x = step_modded,
                 y = mean_surprisal_across_seeds,
                 color = model),
-            size = .7,
-            linetype = "dashed") +
+            size = 1.3) +
+
+  # Across-seed mean points
+  geom_point(data = df_surprisal_avg,
+             aes(x = step_modded,
+                 y = mean_surprisal_across_seeds,
+                 color = model),
+             size = 4, alpha = 0.4) +
+
   # Formatting
   theme_minimal() +
   labs(x = "Training Step (Log10)",
-       y = "Mean Surprisal",
+       y = "Mean Surprisal across seeds",
        color = "") +
   scale_x_log10() +
-  geom_vline(xintercept = 1000, 
-             linetype = "dotted", 
+  geom_vline(xintercept = 1000,
+             linetype = "dotted",
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
   scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
-                                                   begin = 0.8, end = 0.15))
+                                                    begin = 0.8, end = 0.15))
+
 
 
 
@@ -204,9 +179,9 @@ df_surprisal_avg %>%
 df_wide <- df_pythia_models %>%
   filter(seed < 9) %>% ### REMOVE
   mutate(model_id = paste(model, "-", seed_name)) %>%
-  select(step, model_id, surprisal_normed, sentence, word) %>%
+  select(step, model_id, surprisal, sentence, token) %>%
   group_by(model_id, step, sentence) %>%
-  summarise(surprisal = mean(surprisal_normed, na.rm = TRUE), .groups = "drop") %>%
+  summarise(surprisal = mean(surprisal, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(
     names_from = model_id,
     values_from = surprisal
@@ -214,10 +189,10 @@ df_wide <- df_pythia_models %>%
 
 
 cor_matrix <- df_wide %>%
-  filter(step == 16) %>%
-  mutate(`pythia-14m - mean` = rowMeans(select(., starts_with("pythia-14m")), na.rm = TRUE),
-         `pythia-70m - mean` = rowMeans(select(., starts_with("pythia-70m")), na.rm = TRUE),
-         `pythia-160m - mean` = rowMeans(select(., starts_with("pythia-160m")), na.rm = TRUE)) %>%
+  filter(step == 4) %>%
+  # mutate(`pythia-14m - mean` = rowMeans(select(., starts_with("pythia-14m")), na.rm = TRUE),
+  #       `pythia-70m - mean` = rowMeans(select(., starts_with("pythia-70m")), na.rm = TRUE),
+  #       `pythia-160m - mean` = rowMeans(select(., starts_with("pythia-160m")), na.rm = TRUE)) %>%
   select(-step, -sentence) %>%
   cor(use = "pairwise.complete.obs")
 
