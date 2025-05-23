@@ -348,3 +348,70 @@ anim
 
 ```
 
+
+
+# Joining with RT
+
+
+**TOOD**: Steps --> merge wordlist with sentences based on sentence id and word id. then merge sentences with pythia data.
+
+```{r}
+
+## Words
+df_words <- read_excel("../../data/raw/geco-EnglishMaterials.xlsx", sheet = "ALL") %>%
+  select(WORD_ID, SENTENCE_ID, WORD, PART_OF_SPEECH, WORD_LENGTH)
+## Sentences
+df_sentences <- read_excel("../../data/raw/geco-EnglishMaterials.xlsx", sheet = "SENTENCE") %>%
+  mutate(SENTENCE = str_squish(SENTENCE))
+
+df_both = df_words %>%
+  inner_join(df_sentences)
+  
+
+df_160m_final = df_pythia_models %>%
+  filter(model == "pythia-14m") %>%
+  # filter(step %in% c(1, 143000)) %>%
+  # filter(step %in% c(1, 143000)) %>%
+  # filter(seed == 1) %>%
+  select(step, revision, seed, seed_name, word, surprisal_normed, sentence)
+
+df_rt = read_csv("../../data/raw/reading-times/geco-MonolingualReadingData.csv")
+
+df_rt_subset = df_rt %>%
+  mutate(word = WORD) %>%
+  select(`...1`, PP_NR, TRIAL, word, WORD_GAZE_DURATION, 
+         WORD_ID_WITHIN_TRIAL, WORD_ID) %>%
+  filter(PP_NR == "pp21") %>%
+  filter(WORD_GAZE_DURATION != ".") %>%
+  mutate(WORD_GAZE_DURATION = as.numeric(WORD_GAZE_DURATION)) %>%
+  mutate(word_position = WORD_ID_WITHIN_TRIAL - 1)
+
+
+df_rt_with_info = df_both %>%
+  inner_join(df_rt_subset) %>%
+  mutate(sentence = SENTENCE)
+
+
+df_merged = df_160m_final %>%
+  inner_join(df_rt_with_info, by = c("word", "sentence"))
+nrow(df_merged)
+
+
+results <- df_merged %>%
+  group_by(step, seed_name) %>%
+  group_modify(~ {
+    model <- lm(WORD_GAZE_DURATION ~ surprisal_normed, data = .x)
+    tibble(
+      r_squared = summary(model)$r.squared
+    )
+  })
+
+results %>%
+  ggplot(aes(x = step + 1,
+             y = r_squared,
+             color = seed_name)) +
+  scale_x_log10() +
+  geom_vline(xintercept = 1000, linetype = "dotted") +
+  geom_point(size = 2, alpha = .6)
+```
+
