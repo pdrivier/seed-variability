@@ -32,7 +32,7 @@ my_colors <- all_colors[c(3, 5, 7)]  # Selecting specific colors from the palett
 
 Here, we analyze data looking at the average attention each head gives from each token to the previous token.
 
-```{r}
+```{r include=FALSE}
 # setwd("/Users/seantrott/Dropbox/UCSD/Research/NLMs/epistemology/seed-variability/src/analysis")
 directory_path <- "../../data/processed/"
 csv_files <- list.files(path = directory_path, pattern = "*.csv", full.names = TRUE)
@@ -87,21 +87,21 @@ ggplot() +
   geom_point(data = df_surprisal_by_seed,
              aes(x = step_modded,
                  y = mean_surprisal,
-                 color = model),
+                 color = reorder(model, n_params)),
              size = 2, alpha = 0.3) +
 
   # Across-seed mean line
   geom_line(data = df_surprisal_avg,
             aes(x = step_modded,
                 y = mean_surprisal_across_seeds,
-                color = model),
+                color = reorder(model, n_params)),
             size = 1.3) +
 
   # Across-seed mean points
   geom_point(data = df_surprisal_avg,
              aes(x = step_modded,
                  y = mean_surprisal_across_seeds,
-                 color = model),
+                 color = reorder(model, n_params)),
              size = 4, alpha = 0.4) +
 
   # Formatting
@@ -115,7 +115,7 @@ ggplot() +
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                     begin = 0.8, end = 0.15))
 
 
@@ -124,7 +124,7 @@ ggplot() +
 df_surprisal_avg %>%
   ggplot(aes(x = step_modded,
              y = surprisal_var_across_seeds,
-             color = model)) +
+             color = reorder(model, n_params))) +
   geom_line(size = 1.3) +
   geom_point(size = 4, alpha = .4) +
   theme_minimal() +
@@ -137,7 +137,7 @@ df_surprisal_avg %>%
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                 begin = 0.8, end = 0.15))
 
 
@@ -145,7 +145,7 @@ df_surprisal_avg %>%
 df_surprisal_avg %>%
   ggplot(aes(x = step_modded,
              y = surprisal_mean_range,
-             color = model)) +
+             color = reorder(model, n_params))) +
   geom_line(size = 1.3) +
   geom_point(size = 4, alpha = .4) +
   theme_minimal() +
@@ -158,26 +158,84 @@ df_surprisal_avg %>%
              size = 1.2) +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                 begin = 0.8, end = 0.15))
+
+
 
 
 ```
 
 
+### Scaling over time
+
+```{r}
+df_model_avg <- df_surprisal_by_seed %>%
+  group_by(n_params, model, step) %>%
+  summarise(mean_surprisal = mean(mean_surprisal), .groups = "drop")
+
+df_surprisal_by_seed %>%
+  # filter(step %in% c(0, 4, 8, 16)) %>%
+  ggplot(aes(x = n_params,
+             y = mean_surprisal,
+             color = model)) +
+  geom_jitter(size = .5,
+             alpha = .5,
+             width = .1) +
+  geom_point(data = df_model_avg, size = 2.5) +
+  scale_x_log10() +
+  labs(x = "Parameters",
+       y = "Mean Surprisal",
+       color = "") +
+  theme_bw() +
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
+                                                begin = 0.8, end = 0.15)) +
+  theme(text = element_text(size = 15),
+        legend.position="none") +
+  facet_wrap(~step)
+
+
+
+
+scaling_law_df <- df_surprisal_by_seed %>%
+  group_by(step_modded) %>%
+  nest() %>%
+  mutate(
+    model_fit = map(data, ~ lm(mean_surprisal ~ log10(n_params), data = .x)),
+    coef_info = map(model_fit, ~ tidy(.x))
+  ) %>%
+  unnest(coef_info) %>%
+  filter(term == "log10(n_params)") %>%
+  select(step_modded, estimate, std.error, statistic, p.value)
+
+
+scaling_law_df %>%
+  ggplot(aes(x = step_modded, y = estimate)) +
+  geom_line() +
+  geom_point() +
+  geom_ribbon(aes(ymin = estimate - std.error, ymax = estimate + std.error), alpha = 0.2) +
+  scale_x_log10() +
+  labs(
+    title = "Scaling Law Coefficient Over Time",
+    x = "Training Step (log10)",
+    y = "Coefficient for log10(n_params)"
+  ) +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  theme_minimal() +
+  theme(text = element_text(size = 15),
+        legend.position="bottom")
+```
+
+
 # Across-seed correlations
-
-**TODO**: Figure this out...right now code is not dealing well with multiple words per sentence (e.g., "the") when pivoting wider. (Solution: just avg across those instances)
-
-
-**TODO**: Weird effect where correlation is higher early on...not sure what this means re: initialization? (Slution: it was about multi-token words)
 
 
 ```{r}
 
 #### By model/seed
 df_wide <- df_pythia_models %>%
-  filter(seed < 9) %>% ### REMOVE
   mutate(model_id = paste(model, "-", seed_name)) %>%
   select(step, model_id, surprisal, sentence, token) %>%
   group_by(model_id, step, sentence) %>%
@@ -189,7 +247,7 @@ df_wide <- df_pythia_models %>%
 
 
 cor_matrix <- df_wide %>%
-  filter(step == 4) %>%
+  filter(step == 16) %>%
   # mutate(`pythia-14m - mean` = rowMeans(select(., starts_with("pythia-14m")), na.rm = TRUE),
   #       `pythia-70m - mean` = rowMeans(select(., starts_with("pythia-70m")), na.rm = TRUE),
   #       `pythia-160m - mean` = rowMeans(select(., starts_with("pythia-160m")), na.rm = TRUE)) %>%
@@ -198,14 +256,109 @@ cor_matrix <- df_wide %>%
 
 
 
-# Plot the correlation matrix
-ggcorrplot(cor_matrix, 
+### Get ordered model_id by params
+model_id_to_params <- df_pythia_models %>%
+  select(model, seed_name, n_params) %>%
+  distinct() %>%
+  mutate(model_id = paste(model, "-", seed_name)) %>%
+  distinct(model_id, n_params) %>%
+  arrange(n_params) %>%
+  pull(model_id)
+
+
+# Correlation matrix
+cor_matrix <- df_wide %>%
+  filter(step == 8) %>%
+  select(-step, -sentence) %>%
+  cor(use = "pairwise.complete.obs")
+
+# Order it according to number of params
+cor_matrix_ordered <- cor_matrix[ordered_model_ids, ordered_model_ids]
+
+# Plot
+ggcorrplot(cor_matrix_ordered,
            hc.order = FALSE,
-           method = "square" 
-          )
+           method = "square",
+           # type = "lower",
+           lab = FALSE) +
+  theme(text = element_text(size = 12))
 
 
 
+### 
+cor_long <- df_wide %>%
+  filter(step <= 1000) %>%
+  group_by(step) %>%
+  group_map(~ {
+    mat <- .x %>%
+      select(-sentence) %>%
+      cor(use = "pairwise.complete.obs")
+    
+    # Ensure model IDs in both dimensions are ordered by model size
+    mat <- mat[ordered_model_ids, ordered_model_ids]
+
+    # Convert to tidy long format
+    as.data.frame(mat) %>%
+      rownames_to_column(var = "Var1") %>%
+      pivot_longer(
+        cols = -Var1,
+        names_to = "Var2",
+        values_to = "value"
+      ) %>%
+      mutate(step = .y$step)
+  }) %>%
+  bind_rows() %>%
+  mutate(
+    Var1 = factor(Var1, levels = ordered_model_ids),
+    Var2 = factor(Var2, levels = ordered_model_ids)
+  )
+
+
+cor_long %>%
+  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  coord_fixed() +
+  theme_minimal(base_size = 10) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limit = c(-1, 1),
+    name = "Corr"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title = element_blank()) +
+  labs(title = "Step: {closest_state}") +
+  transition_states(step, transition_length = 2, state_length = 1) +
+  ease_aes("linear")
+
+
+cor_long %>%
+  filter(step %in% c(0, 8, 16, 32)) %>%
+  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  facet_wrap(~step, ncol = 2) +
+  scale_fill_gradient2(
+  low = "blue",
+  mid = "white",
+  high = "red",
+  midpoint = 0,
+  limit = c(-1, 1),
+  name = "Corr"
+) +
+  coord_fixed() +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title = element_blank()) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.text.y = element_text(size = 8),
+    axis.title = element_blank()
+  )
+
+##### Correlation across all
 cor_by_group <- df_wide %>%
   group_by(step) %>%
   summarise(
@@ -223,7 +376,8 @@ cor_long <- cor_by_group %>%
   filter(seed1 != seed2) %>%
   separate(seed1, into = c("model1", "seed_name1"), sep = " - ") %>%
   separate(seed2, into = c("model2", "seed_name2"), sep = " - ") %>%
-  mutate(same_model = model1 == model2)
+  mutate(same_model = model1 == model2) %>%
+  mutate(step_modded = step + 1)
 
 # Step 2: Compute mean correlation per step (and optionally model)
 mean_cor_by_step <- cor_long %>%
@@ -232,9 +386,10 @@ mean_cor_by_step <- cor_long %>%
     mean_corr = mean(correlation, na.rm = TRUE),
     se_corr = sd(correlation, na.rm = TRUE) / sqrt(n()),
     .groups = "drop"
-  )
+  ) %>%
+  mutate(step_modded = step + 1)
 
-ggplot(mean_cor_by_step, aes(x = step + 1, y = mean_corr, color = model2)) +
+ggplot(mean_cor_by_step, aes(x = step_modded, y = mean_corr, color = model2)) +
   geom_line(size = 1.2) +
   geom_point(size = 2) +
   geom_ribbon(aes(ymin = mean_corr - 2 * se_corr,
@@ -255,22 +410,60 @@ ggplot(mean_cor_by_step, aes(x = step + 1, y = mean_corr, color = model2)) +
   scale_x_log10() +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                    begin = 0.8, end = 0.15)) +
-  scale_fill_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_fill_manual(values = viridisLite::viridis(4, option = "mako", 
                                                   begin = 0.8, end = 0.15)) +
   facet_wrap(~model1)
 
 
-summary(lmer(correlation ~ step * same_model + 
+summary(lmer(correlation ~ log10(step_modded) * same_model + 
                (1 | seed_name1) + (1 | seed_name2), data = cor_long))
 
 
+s = cor_long %>% 
+  filter(step <= 1000) %>% 
+  group_by(model1, step_modded, same_model) %>% 
+  summarise(m_cor = mean(correlation)) %>%
+  mutate(model = model1)
+
+df_params = df_pythia_models %>%
+  select(model, n_params) %>%
+  distinct() 
+
+s = s %>%
+  inner_join(df_params)
+
+summary(lmer(m_cor ~ log10(step_modded) * same_model 
+             + log10(n_params) +
+               (1 | model), data = s))
+
+ggplot(s, aes(x = step_modded, y = m_cor, color = same_model)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  labs(
+    title = "Inter-seed Correlation",
+    x = "Training Step (Log10)",
+    y = "Mean Correlation",
+    color = "",
+    fill = ""
+  ) +
+  geom_vline(xintercept = 1000, 
+             linetype = "dotted", 
+             size = 1.2) +
+  scale_x_log10() +
+  theme(text = element_text(size = 15),
+        legend.position = "bottom") +
+  scale_color_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                   begin = 0.8, end = 0.15)) +
+  scale_fill_manual(values = viridisLite::viridis(2, option = "mako", 
+                                                  begin = 0.8, end = 0.15)) +
+  facet_wrap(~model)
 
 
 ##### Multi-dimensional scaling
 mds_by_step <- df_wide %>%
-  filter(step <= 128) %>%
+  filter(step <= 1000) %>%
   drop_na() %>%
   group_by(step) %>%
   summarise(
@@ -285,9 +478,11 @@ mds_by_step <- df_wide %>%
   ) %>%
   unnest(mds_df) %>%
   separate(model_id, into = c("model", "seed"), sep = " - ") %>%
-  rename(x = `...1`, y = `...2`)
+  rename(x = `...1`, y = `...2`) %>%
+  inner_join(df_params)
 
-ggplot(mds_by_step, aes(x, y, color = model)) +
+ggplot(mds_by_step, aes(x, y, 
+                        color = reorder(model, n_params))) +
   geom_point() +
   facet_wrap(~ step) +
   theme_bw() +
@@ -296,12 +491,13 @@ ggplot(mds_by_step, aes(x, y, color = model)) +
        color = "") +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                    begin = 0.8, end = 0.15)) 
 
 
+
 # Create animated plot
-p <- ggplot(mds_by_step, aes(x = x, y = y, color = model)) +
+p <- ggplot(mds_by_step, aes(x = x, y = y, color = reorder(model, n_params))) +
   geom_point(size = 3, alpha = 0.8) +
   theme_minimal(base_size = 14) +
   labs(title = "MDS of Model Similarities (Step: {closest_state})",
@@ -310,7 +506,7 @@ p <- ggplot(mds_by_step, aes(x = x, y = y, color = model)) +
        color = "Model") +
   theme(text = element_text(size = 15),
         legend.position = "bottom") +
-  scale_color_manual(values = viridisLite::viridis(3, option = "mako", 
+  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
                                                    begin = 0.8, end = 0.15)) +
   transition_states(step, transition_length = 2, state_length = 1) +
   ease_aes('linear')
