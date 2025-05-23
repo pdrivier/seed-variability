@@ -150,7 +150,7 @@ def count_parameters(model):
     
     return total_params
 
-def compute_surprisal(text,tokenizer,model,device):
+def compute_surprisal_old(text,tokenizer,model,device):
 
     # Tokenize input
     inputs = tokenizer(text, return_tensors="pt", add_special_tokens = True)
@@ -191,6 +191,33 @@ def compute_surprisal(text,tokenizer,model,device):
         token_surprisals = []
 
     return token_surprisals
+
+
+def compute_token_surprisal(text, tokenizer, model, device):
+    """Returns (token, surprisal) for each token in the input."""
+    inputs = tokenizer(text, return_tensors="pt", add_special_tokens=True).to(device)
+    input_ids = inputs["input_ids"]
+
+    with torch.no_grad():
+        outputs = model(input_ids)
+        logits = outputs.logits
+
+    shift_logits = logits[:, :-1, :]
+    shift_labels = input_ids[:, 1:]
+
+    log_probs = torch.nn.functional.log_softmax(shift_logits, dim=-1)
+    next_token_log_probs = log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
+    surprisals = -next_token_log_probs / math.log(2)  # base-2 surprisal
+
+    tokens = tokenizer.convert_ids_to_tokens(shift_labels.squeeze().tolist())
+    if not len(tokens) == 1:
+        token_surprisals = list(zip(tokens, surprisals.squeeze().tolist()))
+    else: 
+        token_surprisals = []
+
+    return token_surprisals
+
+
 
 def clean_up_surprisals(token_surprisals,dataset_name): 
     """dataset_name: string, dictates the way to split tokens"""

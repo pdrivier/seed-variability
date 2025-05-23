@@ -14,8 +14,8 @@ from transformers import GPTNeoXForCausalLM, AutoTokenizer
 
 ## List all models
 MODELS = [
-         # 'EleutherAI/pythia-14m',
-         'EleutherAI/pythia-70m', ### need more steps
+         'EleutherAI/pythia-14m',
+         # 'EleutherAI/pythia-70m', ### need more steps
          # 'EleutherAI/pythia-160m', ### need more steps
          #  'EleutherAI/pythia-410m',
           # 'EleutherAI/pythia-1b',
@@ -36,8 +36,8 @@ DATASETS = [
 ### Handle logic for a dataset/model
 def main(df, mpath, revisions, cachepath):
 
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
     print("number of checkpoints:", len(revisions))
 
     for checkpoint in tqdm(revisions):
@@ -71,8 +71,8 @@ def main(df, mpath, revisions, cachepath):
                 model_name,
                 revision=checkpoint,
                 output_hidden_states = True
-            )
-            model.to(device) # allocate model to desired device
+            ).to(device)
+            model.eval()
 
             tokenizer = AutoTokenizer.from_pretrained(mpath, revision=checkpoint)
 
@@ -87,33 +87,21 @@ def main(df, mpath, revisions, cachepath):
 
             ## Set up code to grab surprisals below
             # would be more efficient if set up in batches but alas
-            for ix, row in tqdm(df.iterrows(),total=len(df)):
-                
-                # Load the current sentence
-                sentence = row["sentences"]
+            for ix, row in tqdm(df.iterrows(), total=len(df)):
+                sentence = row["sentences"].replace("  ", " ")
                 dataset_name = row["dataset_name"]
 
-                ### Replace double spaces in GECO
-                sentence = sentence.replace("  ", " ")
+                ### Get surprisals
+                token_surprisals = utils.compute_token_surprisal(sentence, tokenizer, model, device)
+                for i, (token, surprisal) in enumerate(token_surprisals):
+                    results.append({
+                        "dataset_name": dataset_name,
+                        "sentence": sentence,
+                        "token": token,
+                        "token_position": i,
+                        "surprisal": surprisal
+                    })
 
-                # Compute and clean up surprisals
-                token_surprisals = utils.compute_surprisal(sentence,tokenizer,model,device)
-
-
-                if len(token_surprisals) > 1:
-                    
-                    word_surprisals = utils.clean_up_surprisals(token_surprisals, dataset_name)
-
-                    
-                    for word, surprisal, num_tokens in word_surprisals:
-                        ### Add to results dictionary
-                        results.append({
-                            "dataset_name": dataset_name,
-                            'sentence': sentence,
-                            'word': word,
-                            'surprisal': surprisal,
-                            'num_tokens': num_tokens
-                        })
 
                 #TODO: see if you can polish the below to get surprisals for batched sentences
                 # BATCH_SIZE = 16
