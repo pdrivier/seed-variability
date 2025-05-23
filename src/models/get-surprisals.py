@@ -14,8 +14,8 @@ from transformers import GPTNeoXForCausalLM, AutoTokenizer
 
 ## List all models
 MODELS = [
-         'EleutherAI/pythia-14m',
-         # 'EleutherAI/pythia-70m', ### need more steps
+         # 'EleutherAI/pythia-14m',
+         'EleutherAI/pythia-70m', ### need more steps
          # 'EleutherAI/pythia-160m', ### need more steps
          #  'EleutherAI/pythia-410m',
           # 'EleutherAI/pythia-1b',
