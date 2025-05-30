@@ -51,7 +51,7 @@ def main(df, mpath, revisions, cachepath):
             print(model_name)
 
             ### Set up save path, filename, etc.
-            savepath = "../../data/processed/"
+            savepath = "../../data/processed/surprisals/"
             if not os.path.exists(savepath): 
                 os.mkdir(savepath)
             if "/" in mpath:

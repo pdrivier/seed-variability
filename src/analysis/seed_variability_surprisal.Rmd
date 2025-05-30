@@ -83,28 +83,21 @@ df_surprisal_avg = df_surprisal_by_seed %>%
 
 
 ggplot() +
-  # Individual seed points (fainter)
   geom_point(data = df_surprisal_by_seed,
              aes(x = step_modded,
                  y = mean_surprisal,
                  color = reorder(model, n_params)),
              size = 2, alpha = 0.3) +
-
-  # Across-seed mean line
   geom_line(data = df_surprisal_avg,
             aes(x = step_modded,
                 y = mean_surprisal_across_seeds,
                 color = reorder(model, n_params)),
             size = 1.3) +
-
-  # Across-seed mean points
   geom_point(data = df_surprisal_avg,
              aes(x = step_modded,
                  y = mean_surprisal_across_seeds,
                  color = reorder(model, n_params)),
              size = 4, alpha = 0.4) +
-
-  # Formatting
   theme_minimal() +
   labs(x = "Training Step (Log10)",
        y = "Mean Surprisal across seeds",
@@ -170,32 +163,6 @@ df_surprisal_avg %>%
 ### Scaling over time
 
 ```{r}
-df_model_avg <- df_surprisal_by_seed %>%
-  group_by(n_params, model, step) %>%
-  summarise(mean_surprisal = mean(mean_surprisal), .groups = "drop")
-
-df_surprisal_by_seed %>%
-  # filter(step %in% c(0, 4, 8, 16)) %>%
-  ggplot(aes(x = n_params,
-             y = mean_surprisal,
-             color = model)) +
-  geom_jitter(size = .5,
-             alpha = .5,
-             width = .1) +
-  geom_point(data = df_model_avg, size = 2.5) +
-  scale_x_log10() +
-  labs(x = "Parameters",
-       y = "Mean Surprisal",
-       color = "") +
-  theme_bw() +
-  scale_color_manual(values = viridisLite::viridis(4, option = "mako", 
-                                                begin = 0.8, end = 0.15)) +
-  theme(text = element_text(size = 15),
-        legend.position="none") +
-  facet_wrap(~step)
-
-
-
 
 scaling_law_df <- df_surprisal_by_seed %>%
   group_by(step_modded) %>%
@@ -246,13 +213,6 @@ df_wide <- df_pythia_models %>%
   )
 
 
-cor_matrix <- df_wide %>%
-  filter(step == 16) %>%
-  # mutate(`pythia-14m - mean` = rowMeans(select(., starts_with("pythia-14m")), na.rm = TRUE),
-  #       `pythia-70m - mean` = rowMeans(select(., starts_with("pythia-70m")), na.rm = TRUE),
-  #       `pythia-160m - mean` = rowMeans(select(., starts_with("pythia-160m")), na.rm = TRUE)) %>%
-  select(-step, -sentence) %>%
-  cor(use = "pairwise.complete.obs")
 
 
 
@@ -287,7 +247,7 @@ ggcorrplot(cor_matrix_ordered,
 
 ### 
 cor_long <- df_wide %>%
-  filter(step <= 1000) %>%
+  # filter(step <= 1000) %>%
   group_by(step) %>%
   group_map(~ {
     mat <- .x %>%
@@ -333,30 +293,23 @@ cor_long %>%
   transition_states(step, transition_length = 2, state_length = 1) +
   ease_aes("linear")
 
-
 cor_long %>%
-  filter(step %in% c(0, 8, 16, 32)) %>%
+  filter(step == 10000) %>%
   ggplot(aes(x = Var1, y = Var2, fill = value)) +
   geom_tile() +
-  facet_wrap(~step, ncol = 2) +
-  scale_fill_gradient2(
-  low = "blue",
-  mid = "white",
-  high = "red",
-  midpoint = 0,
-  limit = c(-1, 1),
-  name = "Corr"
-) +
   coord_fixed() +
   theme_minimal(base_size = 10) +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limit = c(-1, 1),
+    name = "Corr"
+  ) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
-        axis.title = element_blank()) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    axis.text.y = element_text(size = 8),
-    axis.title = element_blank()
-  )
+        axis.title = element_blank()) 
+
 
 ##### Correlation across all
 cor_by_group <- df_wide %>%
@@ -463,7 +416,7 @@ ggplot(s, aes(x = step_modded, y = m_cor, color = same_model)) +
 
 ##### Multi-dimensional scaling
 mds_by_step <- df_wide %>%
-  filter(step <= 1000) %>%
+  # filter(step <= 1000) %>%
   drop_na() %>%
   group_by(step) %>%
   summarise(
