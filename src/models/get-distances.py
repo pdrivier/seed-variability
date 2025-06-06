@@ -140,6 +140,7 @@ def main(df, mpath, revisions):
             df_results = pd.DataFrame(results)
             df_results['token_diffs'] = np.abs(df_results['S1_ntokens'].values-df_results['S2_ntokens'].values)
             df_results['n_params'] = np.repeat(n_params,df_results.shape[0])
+            df_results['model'] = mpath.split("/")[1]
             df_results['mpath'] = mpath
             df_results['revision'] = checkpoint
             df_results['seed_name'] = seed_name
